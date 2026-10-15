@@ -1,0 +1,7 @@
+node_modules
+.next
+shots
+.git
+.env
+.env.*
+!.env.example

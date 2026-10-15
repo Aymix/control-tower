@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Every page is per-user and per-request; no static prerendering (cacheComponents off).
+  reactStrictMode: true,
+  serverExternalPackages: ["pg", "pg-boss"],
+  output: "standalone",
   turbopack: {
     rules: {
       "*.css": {

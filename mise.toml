@@ -1,0 +1,21 @@
+[tools]
+node = "22"
+pnpm = "10"
+
+[env]
+_.file = ".env"
+
+[tasks.dev]
+description = "Run web (Next.js) in dev mode"
+run = "pnpm dev"
+
+[tasks.worker]
+description = "Run the pg-boss background worker"
+run = "pnpm worker"
+
+[tasks.db-up]
+description = "Start Postgres via docker compose"
+run = "docker compose up -d db"
+
+[tasks.test]
+run = "pnpm test"
