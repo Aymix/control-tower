@@ -15,6 +15,8 @@ export function Transcript({ sessionId, initialEvents, initialStatus, onStatus }
   const [partial, setPartial] = useState<string>("");
   const [connected, setConnected] = useState(false);
   const lastSeq = useRef(initialEvents.at(-1)?.seq ?? 0);
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
   const bottom = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
@@ -39,7 +41,7 @@ export function Transcript({ sessionId, initialEvents, initialStatus, onStatus }
       es.addEventListener("status", (e) => {
         const s = JSON.parse((e as MessageEvent).data) as StatusSnapshot;
         setStatus(s);
-        onStatus?.(s);
+        onStatusRef.current?.(s);
         if (s.status !== "running") setPartial("");
       });
       es.onerror = () => {
@@ -53,7 +55,7 @@ export function Transcript({ sessionId, initialEvents, initialStatus, onStatus }
       stopped = true;
       es?.close();
     };
-  }, [sessionId, onStatus]);
+  }, [sessionId]);
 
   useEffect(() => {
     if (stickToBottom.current) bottom.current?.scrollIntoView({ block: "end" });
