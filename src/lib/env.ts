@@ -11,6 +11,9 @@ const schema = z.object({
   PR_POLL_HOT_SECONDS: z.coerce.number().int().positive().default(60),
   PR_POLL_WARM_SECONDS: z.coerce.number().int().positive().default(300),
   PR_POLL_COLD_SECONDS: z.coerce.number().int().positive().default(1800),
+  SESSION_MAX_HOURS: z.coerce.number().positive().default(6),
+  SESSION_SILENT_MINUTES: z.coerce.number().positive().default(5),
+  RUNNER_OFFLINE_SECONDS: z.coerce.number().int().positive().default(90),
 });
 
 export type Env = z.infer<typeof schema>;

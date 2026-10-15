@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Toaster } from "@/components/ui/sonner";
-import { ThemeScript } from "@/components/shell/theme";
+import { ThemeScript } from "@/components/shell/theme-script";
 import "./globals.css";
 
 export const metadata: Metadata = {

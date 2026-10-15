@@ -9,6 +9,10 @@ import { CommentTimeline } from "@/components/tasks/comments";
 import { NewTaskDialog } from "@/components/tasks/new-task-dialog";
 import { PrPanel } from "@/components/tasks/pr-panel";
 import { StatusControl } from "@/components/tasks/status-control";
+import { SessionPanel } from "@/components/sessions/session-panel";
+import { repo, runnerToken } from "@/db/schema";
+import { latestSessionsForTask } from "@/server/sessions/service";
+import { runnerIsOnline } from "@/server/runner-auth";
 import { TaskEditor } from "@/components/tasks/task-editor";
 import { DeleteTaskButton } from "@/components/tasks/delete-task-button";
 import { Button } from "@/components/ui/button";
@@ -41,6 +45,12 @@ export default async function TaskPage({ params }: { params: Promise<{ slug: str
     loadAssignees(ws.id),
   ]);
   const doneSubs = t.subtasks.filter((s) => s.status === "done").length;
+  const [sessions, repos, myRunners] = await Promise.all([
+    latestSessionsForTask(t.id),
+    db.query.repo.findMany({ where: eq(repo.workspaceId, ws.id), columns: { id: true, owner: true, name: true } }),
+    db.query.runnerToken.findMany({ where: eq(runnerToken.userId, me.id) }),
+  ]);
+  const hasOnlineRunner = myRunners.some((r) => runnerIsOnline(r));
 
   return (
     <div className="max-w-6xl">
@@ -89,6 +99,8 @@ export default async function TaskPage({ params }: { params: Promise<{ slug: str
 
           <PrPanel taskId={t.id} slug={slug} prs={t.pullRequests} hasPat={!!ws.githubPatEnc} branchHint={branchNameFor(t.number, t.title)} />
 
+          <SessionPanel taskId={t.id} slug={slug} sessions={sessions} defaultModel={ws.defaultModel} repos={repos} hasOnlineRunner={hasOnlineRunner} taskDone={t.status === "done"} />
+
           <CommentTimeline taskId={t.id} comments={comments} />
         </div>
 
@@ -108,9 +120,6 @@ export default async function TaskPage({ params }: { params: Promise<{ slug: str
             <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Branch</dt><dd className="font-mono text-xs truncate max-w-[180px]" title={branchNameFor(t.number, t.title)}>{branchNameFor(t.number, t.title)}</dd></div>
           </dl>
           <Blockers taskId={t.id} slug={slug} blockedBy={blockedByRows.map((b) => b.blockedBy)} blocking={blockingRows.map((b) => b.task)} />
-          <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            Claude sessions (plan or implement this task on your runner) arrive in phase 2.
-          </div>
           {me.role === "owner" ? (
             <DeleteTaskButton taskId={t.id} number={t.number} slug={slug} />
           ) : null}

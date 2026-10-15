@@ -2,6 +2,11 @@ import { desc, eq, gt, isNull, and } from "drizzle-orm";
 import { Trash2 } from "lucide-react";
 import { RecoveryLinkButton, InviteManager } from "@/components/account/invites";
 import { PasskeyList } from "@/components/account/passkeys";
+import { RunnerManager } from "@/components/account/runners";
+import { runnerToken, agentSession } from "@/db/schema";
+import { runnerAuthLabel, runnerIsOnline } from "@/server/runner-auth";
+import { env } from "@/lib/env";
+import { inArray } from "drizzle-orm";
 import { ActionButton } from "@/components/forms/action-button";
 import { ActionForm } from "@/components/forms/action-form";
 import { PageHeader } from "@/components/shell/page-header";
@@ -20,6 +25,10 @@ export default async function AccountPage() {
   const me = await requireUser();
   const passkeys = await db.query.passkey.findMany({ where: eq(passkey.userId, me.id), orderBy: [desc(passkey.createdAt)] });
   const isOwner = me.role === "owner";
+  const runners = await db.query.runnerToken.findMany({ where: eq(runnerToken.userId, me.id), orderBy: [desc(runnerToken.createdAt)] });
+  const activeByRunner = runners.length
+    ? await db.query.agentSession.findMany({ where: and(inArray(agentSession.runnerId, runners.map((r) => r.id)), inArray(agentSession.status, ["claimed", "starting", "running"])), columns: { runnerId: true } })
+    : [];
   const [invites, users, workspaces] = isOwner
     ? await Promise.all([
         db.query.invite.findMany({ where: and(isNull(invite.usedAt), gt(invite.expiresAt, new Date())), orderBy: [desc(invite.createdAt)] }),
@@ -52,9 +61,28 @@ export default async function AccountPage() {
 
       <section className="space-y-3" id="runners">
         <h2 className="text-sm font-semibold">Runners</h2>
-        <p className="text-sm text-muted-foreground">
-          Claude sessions run on your own machine, on your Claude subscription. Runner tokens arrive in phase 2.
+        <p className="text-xs text-muted-foreground">
+          Claude sessions run on your own machine under your own <code>claude login</code> and git credentials. One runner per person: never share a token or a Claude account.
+          Anthropic&apos;s terms reserve subscription (OAuth) access for your own ordinary use of Claude Code; the runner refuses to start with an API key unless you set <code>TOWER_ALLOW_API_KEY=1</code>.
         </p>
+        <RunnerManager
+          towerUrl={env().APP_URL}
+          runners={runners.map((r) => ({
+            id: r.id,
+            name: r.name,
+            last4: r.last4,
+            hostname: r.hostname,
+            platform: r.platform,
+            capacity: r.capacity,
+            runnerVersion: r.runnerVersion,
+            claudeVersion: r.claudeVersion,
+            online: runnerIsOnline(r),
+            authLabel: runnerAuthLabel(r),
+            lastSeenAt: r.lastSeenAt,
+            revokedAt: r.revokedAt,
+            activeSessions: activeByRunner.filter((s) => s.runnerId === r.id).length,
+          }))}
+        />
       </section>
 
       {isOwner ? (

@@ -20,6 +20,22 @@ First visit: `http://localhost:3000/setup` creates the owner account and asks fo
 There are no seed users. Set `DEV_LOGIN=1` in `.env` to get a passwordless "dev login"
 on the login page (ignored in production).
 
+## Runner (Claude sessions)
+
+Each person runs a runner on their own machine, logged into their own Claude subscription:
+
+```bash
+claude login                                  # once, on the runner machine
+# Account → Runners → Create runner token, then:
+TOWER_URL=https://tower.example.com TOWER_RUNNER_TOKEN=ctr_… pnpm runner
+```
+
+Runner settings: `RUNNER_CAPACITY` (parallel sessions, default 1), `RUNNER_IDLE_MS` (detach after
+idle, default 600000), `TOWER_RUNNER_HOME` (default `~/.tower-runner`), `TOWER_GIT_PROTOCOL`
+(`ssh` default or `https`), `TOWER_GIT_BASE` (override clone base, e.g. a mirror),
+`RUNNER_KEEP_WORKTREES=1`, `TOWER_ALLOW_API_KEY=1` (otherwise an API key is refused).
+See `tests/e2e/phase-2.md` and the policy note in `docs/PLAN.md`.
+
 Useful scripts:
 
 | Script              | What                                                       |
@@ -29,6 +45,7 @@ Useful scripts:
 | `pnpm lint`         | eslint                                                     |
 | `pnpm db:generate`  | create a migration from `src/db/schema.ts`                 |
 | `pnpm db:migrate`   | apply migrations                                           |
+| `pnpm runner`       | start a runner on this machine (needs `TOWER_URL`, `TOWER_RUNNER_TOKEN`) |
 | `pnpm shots`        | seed a demo workspace and screenshot every page to `shots/` (needs `pnpm dev` + `DEV_LOGIN=1`) |
 
 ## Production (Docker Compose + Caddy)

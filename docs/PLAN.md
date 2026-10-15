@@ -70,6 +70,56 @@ subtask of the source task), edits, merges into an existing task (appends to its
 description) or discards. Dependencies between accepted proposals become
 blocked-by links. Creating tasks manually stays the default path.
 
+## Claude sessions (phase 2)
+
+**Where they run.** On each person's own machine, in `pnpm runner`, under that machine's
+`claude login` and git credentials. The server never holds Claude credentials and never
+proxies model traffic; it only hands the runner a context pack and receives events.
+The runner refuses to start when `ANTHROPIC_API_KEY` is set (override: `TOWER_ALLOW_API_KEY=1`)
+and fails a session whose init reports an API-key source. Managed Agents are not used.
+
+**Policy note (checked 2026-10-15).** Anthropic's Claude Code legal page says OAuth
+(subscription) auth is "intended exclusively … to support ordinary use of Claude Code and
+other native Anthropic applications", that developers building products on the Agent SDK
+"should use API key authentication", and that third parties may not "offer Claude.ai login
+into their own applications, or … route requests through Free, Pro, or Max plan credentials
+on behalf of their users" or "collect, store, or intermediate Claude.ai credentials". It also
+says this does not prevent "an end user from signing in to the unmodified Claude Code binary
+with their own Claude subscription". Control Tower is designed to stay on the permitted side:
+one runner per person, on that person's machine, with their own login; no credential ever
+leaves the machine; no usage is resold or shared. If you ever distribute this to people
+outside your own team as a product, switch runners to API keys.
+
+**Lifecycle.** queued → claimed (runner poll) → starting (worktree) → running → idle
+(turn finished, resumable) / interrupted / budget_reached / failed / completed.
+Follow-ups while attached stream into the same SDK session; after `RUNNER_IDLE_MS` the runner
+detaches, and a later follow-up re-queues the session sticky to the same runner, which
+resumes it with the stored `sdk_session_id`. The worker reaper fails sessions silent for
+`SESSION_SILENT_MINUTES` and interrupts sessions older than `SESSION_MAX_HOURS`.
+
+**Git.** Bare-clone cache per repo plus one worktree per session. Implementation sessions
+branch `t<n>-slug` from the default branch (or check out the existing remote branch).
+Worktrees are removed on completion unless they hold unpushed commits or uncommitted changes.
+
+**Guards (PreToolUse hooks, unit-tested in `src/lib/guards/bash.ts`).** No force pushes,
+no history rewrites, no deleting branches, no pushing to or checking out the default
+branch, no destructive commands outside the worktree, no writes outside the worktree.
+Planning sessions deny Write/Edit and redirects and allowlist read-only commands, tests,
+lint and typecheck.
+
+**Tools (in-process MCP server `tower`, strictMcpConfig).** `report_blocker` (Blocked +
+agent comment), `submit_plan` (KB doc "Plan: T-n …" + proposal batch), `open_pull_request`
+(PR via the workspace PAT, task → In review). Tool calls are forwarded to the server; the
+PAT never reaches the runner.
+
+**Transcript.** The runner posts compact events (init, assistant blocks, tool results,
+guards, git, result, status) in order; the web app streams them over SSE and resumes from
+the last sequence number on reload. Partial text is shown live and replaced by the final
+message.
+
+**Usage.** Each result carries the SDK's cumulative usage; the server stores deltas in a
+ledger per workspace and session. Workspace budgets block new sessions when exceeded.
+
 ## Phases
 
 1. **Core PM + GitHub** (this repo state): auth, workspaces, rules, KB, board,

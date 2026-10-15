@@ -5,9 +5,11 @@ import { db, pool } from "@/db";
 import { pullRequest, repo, workspace } from "@/db/schema";
 import { env } from "@/lib/env";
 import { discoverPullsForRepo, syncPullById } from "@/server/prs/sync";
+import { reapSessions } from "@/server/sessions/service";
 
 const QUEUE_POLL = "prs.poll";
 const QUEUE_DISCOVER = "prs.discover";
+const QUEUE_REAP = "sessions.reap";
 
 async function main() {
   const boss = new PgBoss({ connectionString: env().DATABASE_URL, schema: "pgboss" });
@@ -17,6 +19,8 @@ async function main() {
   await boss.createQueue(QUEUE_DISCOVER);
   await boss.schedule(QUEUE_POLL, "* * * * *");
   await boss.schedule(QUEUE_DISCOVER, "*/2 * * * *");
+  await boss.createQueue(QUEUE_REAP);
+  await boss.schedule(QUEUE_REAP, "* * * * *");
 
   await boss.work(QUEUE_POLL, { batchSize: 1 }, async () => {
     const cfg = env();
@@ -59,7 +63,12 @@ async function main() {
     }
   });
 
-  console.log("[worker] started; polling PRs every minute, discovering every 2 minutes");
+  await boss.work(QUEUE_REAP, { batchSize: 1 }, async () => {
+    const r = await reapSessions();
+    if (r.silent || r.tooLong) console.log(`[worker] reaper: failed ${r.silent} silent session(s), interrupted ${r.tooLong} over the max duration`);
+  });
+
+  console.log("[worker] started; polling PRs every minute, discovering every 2 minutes, reaping sessions every minute");
 
   const shutdown = async () => {
     console.log("[worker] stopping");

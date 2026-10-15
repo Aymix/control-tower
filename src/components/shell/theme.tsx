@@ -1,15 +1,9 @@
 "use client";
 import { Moon, Sun } from "lucide-react";
-import Script from "next/script";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
-const STORAGE_KEY = "ct-theme";
-
-export function ThemeScript() {
-  const js = `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}");var d=t?t==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark");}catch(e){}})();`;
-  return <Script id="ct-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: js }} />;
-}
+import { THEME_STORAGE_KEY as STORAGE_KEY } from "./theme-script";
 
 export function ThemeToggle() {
   const [dark, setDark] = useState<boolean | null>(null);

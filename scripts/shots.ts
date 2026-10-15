@@ -120,6 +120,7 @@ async function main() {
     ["rules", `${w}/rules`],
     ["repos", `${w}/repos`],
     ["prs", `${w}/prs`],
+    ["sessions", `${w}/sessions`],
     ["briefings", `${w}/briefings`],
     ["usage", `${w}/usage`],
     ["ws-settings", `${w}/settings`],

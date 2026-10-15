@@ -473,6 +473,7 @@ export const repoRelations = relations(repo, ({ one, many }) => ({
 }));
 
 export const taskRelations = relations(task, ({ one, many }) => ({
+  sessions: many(agentSession),
   workspace: one(workspace, { fields: [task.workspaceId], references: [workspace.id] }),
   assignee: one(user, { fields: [task.assigneeId], references: [user.id] }),
   parent: one(task, { fields: [task.parentId], references: [task.id], relationName: "subtasks" }),
@@ -537,3 +538,182 @@ export const TASK_STATUSES = taskStatus.enumValues;
 export const TASK_PRIORITIES = taskPriority.enumValues;
 export const KB_KINDS = kbKind.enumValues;
 export const sqlNow = sql`now()`;
+
+// ---------------------------------------------------------------------------
+// Phase 2: runners, Claude sessions, usage
+// ---------------------------------------------------------------------------
+
+export const runnerToken = pgTable(
+  "runner_token",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    last4: text("last4").notNull(),
+    hostname: text("hostname"),
+    platform: text("platform"),
+    capacity: integer("capacity").notNull().default(1),
+    runnerVersion: text("runner_version"),
+    claudeVersion: text("claude_version"),
+    apiKeySource: text("api_key_source"), // last observed in a session init: 'none' | 'oauth' | 'ANTHROPIC_API_KEY' | …
+    hasApiKeyEnv: boolean("has_api_key_env").notNull().default(false),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("runner_token_user_idx").on(t.userId)],
+);
+
+export const sessionKind = pgEnum("session_kind", ["planning", "implementation"]);
+export const sessionStatus = pgEnum("session_status", [
+  "queued",
+  "claimed",
+  "starting",
+  "running",
+  "idle",
+  "completed",
+  "failed",
+  "interrupted",
+  "budget_reached",
+]);
+
+export const agentSession = pgTable(
+  "agent_session",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    repoId: text("repo_id").references(() => repo.id, { onDelete: "set null" }),
+    kind: sessionKind("kind").notNull(),
+    status: sessionStatus("status").notNull().default("queued"),
+    title: text("title").notNull().default(""),
+    model: text("model").notNull(),
+    maxBudgetUsd: integer("max_budget_cents"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    runnerId: text("runner_id").references(() => runnerToken.id, { onDelete: "set null" }),
+    sdkSessionId: text("sdk_session_id"),
+    branch: text("branch"),
+    baseBranch: text("base_branch"),
+    worktreePath: text("worktree_path"),
+    hasUnpushedCommits: boolean("has_unpushed_commits").notNull().default(false),
+    attached: boolean("attached").notNull().default(false), // runner currently holds the SDK process
+    interruptRequestedAt: timestamp("interrupt_requested_at", { withTimezone: true }),
+    endRequestedAt: timestamp("end_requested_at", { withTimezone: true }),
+    lastSeq: integer("last_seq").notNull().default(0),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    error: text("error"),
+    apiKeySource: text("api_key_source"),
+    numTurns: integer("num_turns").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costMicros: integer("cost_micros").notNull().default(0), // USD * 1e6, estimated
+    pullRequestId: text("pull_request_id").references(() => pullRequest.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agent_session_task_idx").on(t.taskId),
+    index("agent_session_ws_idx").on(t.workspaceId, t.createdAt),
+    index("agent_session_status_idx").on(t.status),
+  ],
+);
+
+export const sessionEvent = pgTable(
+  "session_event",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => agentSession.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("session_event_seq_idx").on(t.sessionId, t.seq)],
+);
+
+export const sessionMessageKind = pgEnum("session_message_kind", ["initial", "steer", "followup"]);
+
+export const sessionMessage = pgTable(
+  "session_message",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => agentSession.id, { onDelete: "cascade" }),
+    kind: sessionMessageKind("kind").notNull(),
+    body: text("body").notNull(),
+    authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("session_message_session_idx").on(t.sessionId, t.createdAt)],
+);
+
+export const usageEntry = pgTable(
+  "usage_entry",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").references(() => agentSession.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costMicros: integer("cost_micros").notNull().default(0),
+    numTurns: integer("num_turns").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("usage_ws_created_idx").on(t.workspaceId, t.createdAt)],
+);
+
+export const runnerTokenRelations = relations(runnerToken, ({ one, many }) => ({
+  user: one(user, { fields: [runnerToken.userId], references: [user.id] }),
+  sessions: many(agentSession),
+}));
+
+export const agentSessionRelations = relations(agentSession, ({ one, many }) => ({
+  workspace: one(workspace, { fields: [agentSession.workspaceId], references: [workspace.id] }),
+  task: one(task, { fields: [agentSession.taskId], references: [task.id] }),
+  repo: one(repo, { fields: [agentSession.repoId], references: [repo.id] }),
+  runner: one(runnerToken, { fields: [agentSession.runnerId], references: [runnerToken.id] }),
+  creator: one(user, { fields: [agentSession.createdBy], references: [user.id] }),
+  pullRequest: one(pullRequest, { fields: [agentSession.pullRequestId], references: [pullRequest.id] }),
+  events: many(sessionEvent),
+  messages: many(sessionMessage),
+}));
+
+export const sessionEventRelations = relations(sessionEvent, ({ one }) => ({
+  session: one(agentSession, { fields: [sessionEvent.sessionId], references: [agentSession.id] }),
+}));
+
+export const sessionMessageRelations = relations(sessionMessage, ({ one }) => ({
+  session: one(agentSession, { fields: [sessionMessage.sessionId], references: [agentSession.id] }),
+}));
+
+export type RunnerToken = typeof runnerToken.$inferSelect;
+export type AgentSession = typeof agentSession.$inferSelect;
+export type SessionEvent = typeof sessionEvent.$inferSelect;
+export type SessionMessage = typeof sessionMessage.$inferSelect;
+export type SessionStatus = (typeof sessionStatus.enumValues)[number];
+export type SessionKind = (typeof sessionKind.enumValues)[number];
+export const SESSION_STATUSES = sessionStatus.enumValues;

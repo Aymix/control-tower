@@ -12,6 +12,7 @@ const tabs = [
   { href: "/rules", label: "Rules" },
   { href: "/repos", label: "Repos" },
   { href: "/prs", label: "PRs" },
+  { href: "/sessions", label: "Sessions" },
   { href: "/briefings", label: "Briefings" },
   { href: "/usage", label: "Usage" },
 ];
