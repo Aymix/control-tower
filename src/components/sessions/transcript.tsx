@@ -16,7 +16,9 @@ export function Transcript({ sessionId, initialEvents, initialStatus, onStatus }
   const [connected, setConnected] = useState(false);
   const lastSeq = useRef(initialEvents.at(-1)?.seq ?? 0);
   const onStatusRef = useRef(onStatus);
-  onStatusRef.current = onStatus;
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  }, [onStatus]);
   const bottom = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 

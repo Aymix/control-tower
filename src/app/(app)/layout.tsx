@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { db } from "@/db";
 import { task } from "@/db/schema";
 import { MobileNav } from "@/components/shell/mobile-nav";
@@ -16,7 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .from(task)
       .where(
         user.role === "owner"
-          ? and(inArray(task.workspaceId, wsIds), or(eq(task.status, "in_review"), eq(task.status, "blocked")))
+          ? and(inArray(task.workspaceId, wsIds), or(eq(task.status, "in_review"), eq(task.status, "blocked")), ne(task.number, 0))
           : and(inArray(task.workspaceId, wsIds), eq(task.assigneeId, user.id), inArray(task.status, ["in_progress", "blocked", "in_review"])),
       );
     inboxCount = rows.length;

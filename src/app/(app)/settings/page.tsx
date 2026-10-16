@@ -12,12 +12,17 @@ import { updateOrgSettings } from "@/server/actions/org";
 import { getOrgSettings } from "@/server/queries/org";
 import { archiveWorkspace, createWorkspace } from "@/server/actions/workspaces";
 import { requireOwner } from "@/server/auth";
+import { workerHealth, workerIsAlive } from "@/server/queries/worker";
+import { TimeAgo } from "@/components/common/time";
+import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   await requireOwner();
   const org = await getOrgSettings();
+  const health = await workerHealth();
+  const alive = health.available && workerIsAlive(health.jobs);
   const workspaces = await db.query.workspace.findMany({ orderBy: (w, { asc }) => [asc(w.name)], with: { members: true, repos: { columns: { id: true } } } });
 
   return (
@@ -31,6 +36,27 @@ export default async function SettingsPage() {
           </Button>
         }
       />
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold">Background worker</h2>
+        <div className={cn("rounded-lg border p-3 text-sm", !alive && "bg-amber-500/10")}>
+          <div className="flex items-center gap-2 font-medium">
+            <span className={cn("size-2 rounded-full", alive ? "bg-emerald-500" : "bg-amber-500")} />
+            {alive ? "Running" : health.available ? "Not running — PRs are not being polled and stuck sessions are not reaped" : "Not initialised yet"}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">Start it with <code>pnpm worker</code> (or the <code>worker</code> service in production). It polls PRs, discovers t&lt;n&gt;-… branches and reaps silent sessions.</p>
+          {health.jobs.length ? (
+            <ul className="mt-2 grid gap-1 sm:grid-cols-3 text-xs">
+              {health.jobs.map((j) => (
+                <li key={j.name} className="rounded border px-2 py-1">
+                  <div className="font-mono">{j.name}</div>
+                  <div className="text-muted-foreground">last run {j.lastCompletedAt ? <TimeAgo date={j.lastCompletedAt} /> : "never"}{j.lastFailedAt && (!j.lastCompletedAt || j.lastFailedAt > j.lastCompletedAt) ? <span className="text-red-600 dark:text-red-400"> · failed <TimeAgo date={j.lastFailedAt} /></span> : null}</div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </section>
 
       <section id="workspaces" className="space-y-3">
         <h2 className="text-sm font-semibold">Workspaces</h2>

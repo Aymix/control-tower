@@ -25,6 +25,7 @@ import { env } from "@/lib/env";
 import { branchNameFor } from "@/lib/prs/branch";
 import { buildContextPack } from "@/lib/sessions/context-pack";
 import { addSystemComment } from "@/server/tasks";
+import { buildBriefingPackForSession, markBriefingDrafting, markBriefingFailed } from "@/server/briefings/service";
 
 export const ACTIVE_STATUSES: SessionStatus[] = ["queued", "claimed", "starting", "running"];
 export const RESUMABLE_STATUSES: SessionStatus[] = ["idle", "interrupted", "budget_reached"];
@@ -141,6 +142,18 @@ export async function buildBundle(sessionId: string, runner: RunnerToken) {
     with: { repo: true, workspace: true, task: true },
   });
   if (!s) return null;
+  if (s.kind === "briefing") {
+    const bp = await buildBriefingPackForSession(s.id);
+    if (!bp) return null;
+    const initialMsg = await db.query.sessionMessage.findFirst({ where: and(eq(sessionMessage.sessionId, s.id), eq(sessionMessage.kind, "initial")) });
+    if (initialMsg && !initialMsg.deliveredAt) await db.update(sessionMessage).set({ deliveredAt: new Date() }).where(eq(sessionMessage.id, initialMsg.id));
+    return {
+      session: { id: s.id, kind: s.kind, model: s.model, maxBudgetUsd: s.maxBudgetUsd != null ? s.maxBudgetUsd / 100 : null, sdkSessionId: s.sdkSessionId, branch: null, baseBranch: null, worktreePath: s.worktreePath, lastSeq: s.lastSeq, taskNumber: s.task.number, taskTitle: s.task.title, workspaceSlug: s.workspace.slug },
+      repo: null,
+      pack: bp.pack,
+      resuming: !!s.sdkSessionId,
+    };
+  }
   const org = (await db.query.orgSettings.findFirst({ where: eq(orgSettings.id, "org") })) ?? { name: "Control Tower", globalRules: "", guardrails: "" };
   const t = s.task;
   const parent = t.parentId ? await db.query.task.findFirst({ where: eq(task.id, t.parentId) }) : null;
@@ -164,7 +177,7 @@ export async function buildBundle(sessionId: string, runner: RunnerToken) {
   const initial = await db.query.sessionMessage.findFirst({ where: and(eq(sessionMessage.sessionId, s.id), eq(sessionMessage.kind, "initial")) });
 
   const pack = buildContextPack({
-    kind: s.kind,
+    kind: s.kind as "planning" | "implementation",
     org: { name: org.name, globalRules: org.globalRules, guardrails: org.guardrails },
     workspace: { name: s.workspace.name, clientName: s.workspace.clientName, rules: s.workspace.rules },
     repo: s.repo ? { owner: s.repo.owner, name: s.repo.name, defaultBranch: s.repo.defaultBranch } : null,
@@ -278,7 +291,11 @@ export async function updateSessionStatus(sessionId: string, runner: RunnerToken
     set.numTurns = Math.max(s.numTurns, u.numTurns);
   }
   await db.update(agentSession).set(set).where(eq(agentSession.id, sessionId));
-  if (set.status && set.status !== s.status) {
+  if (s.kind === "briefing" && set.status) {
+    if (set.status === "running") await markBriefingDrafting(s.id);
+    if (set.status === "failed" || set.status === "budget_reached") await markBriefingFailed(s.id, patch.error ?? set.status);
+  }
+  if (set.status && set.status !== s.status && s.kind !== "briefing") {
     const note = set.status === "failed" && patch.error ? ` — ${patch.error}` : "";
     await addSystemComment(s.task.id, `Claude session _${s.title}_ is now **${set.status.replace("_", " ")}**${note}.`);
   }
@@ -311,7 +328,11 @@ export async function requestEnd(sessionId: string): Promise<void> {
     await addSystemComment(s.taskId, `Claude session _${s.title}_ was ended.`);
     return;
   }
-  await db.update(agentSession).set({ endRequestedAt: new Date(), updatedAt: new Date() }).where(eq(agentSession.id, sessionId));
+  // Attached: stop input now and interrupt a running turn; the runner completes the session after the turn ends.
+  await db
+    .update(agentSession)
+    .set({ endRequestedAt: new Date(), interruptRequestedAt: s.status === "running" ? new Date() : s.interruptRequestedAt, updatedAt: new Date() })
+    .where(eq(agentSession.id, sessionId));
 }
 
 /** Worker: fail silent sessions and enforce the max duration. */
@@ -323,8 +344,11 @@ export async function reapSessions(): Promise<{ silent: number; tooLong: number 
     .update(agentSession)
     .set({ status: "failed", attached: false, error: `Runner went silent for ${cfg.SESSION_SILENT_MINUTES} minutes.`, finishedAt: now, updatedAt: now })
     .where(and(inArray(agentSession.status, ["claimed", "starting", "running"]), lt(agentSession.lastHeartbeatAt, silentBefore)))
-    .returning({ id: agentSession.id, taskId: agentSession.taskId, title: agentSession.title });
-  for (const s of silent) await addSystemComment(s.taskId, `Claude session _${s.title}_ **failed**: the runner stopped responding.`);
+    .returning({ id: agentSession.id, taskId: agentSession.taskId, title: agentSession.title, kind: agentSession.kind });
+  for (const s of silent) {
+    if (s.kind === "briefing") await markBriefingFailed(s.id, "The runner stopped responding while drafting.");
+    else await addSystemComment(s.taskId, `Claude session _${s.title}_ **failed**: the runner stopped responding.`);
+  }
 
   const maxBefore = new Date(now.getTime() - cfg.SESSION_MAX_HOURS * 3_600_000);
   const tooLong = await db.query.agentSession.findMany({

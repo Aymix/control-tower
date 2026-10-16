@@ -1,11 +1,11 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { task, taskBlocker, user, workspaceMember } from "@/db/schema";
 import type { BoardCard } from "@/components/board/types";
 
 export async function loadBoard(workspaceId: string): Promise<BoardCard[]> {
   const tasks = await db.query.task.findMany({
-    where: eq(task.workspaceId, workspaceId),
+    where: and(eq(task.workspaceId, workspaceId), ne(task.number, 0)),
     with: {
       assignee: { columns: { id: true, name: true } },
       pullRequests: { columns: { id: true, state: true, ciStatus: true, draft: true } },

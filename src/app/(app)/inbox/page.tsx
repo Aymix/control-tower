@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { Inbox as InboxIcon, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { EmptyState } from "@/components/common/empty-state";
@@ -7,7 +7,7 @@ import { PriorityBadge, StatusBadge } from "@/components/common/status-badge";
 import { TimeAgo } from "@/components/common/time";
 import { PageHeader } from "@/components/shell/page-header";
 import { db } from "@/db";
-import { comment, task } from "@/db/schema";
+import { briefing, comment, task } from "@/db/schema";
 import { listAccessibleWorkspaces, requireUser } from "@/server/auth";
 
 export const metadata = { title: "Inbox" };
@@ -34,7 +34,7 @@ export default async function InboxPage() {
   const attention = await db.query.task.findMany({
     where:
       me.role === "owner"
-        ? and(inArray(task.workspaceId, wsIds), or(eq(task.status, "in_review"), eq(task.status, "blocked")))
+        ? and(inArray(task.workspaceId, wsIds), or(eq(task.status, "in_review"), eq(task.status, "blocked")), ne(task.number, 0))
         : and(inArray(task.workspaceId, wsIds), eq(task.assigneeId, me.id), inArray(task.status, ["in_progress", "blocked", "in_review", "backlog"])),
     with: { assignee: { columns: { name: true } }, pullRequests: { columns: { id: true, state: true, ciStatus: true } } },
     orderBy: [desc(task.updatedAt)],
@@ -49,6 +49,7 @@ export default async function InboxPage() {
     .orderBy(desc(comment.createdAt))
     .limit(25);
 
+  const drafts = me.role === "owner" ? await db.query.briefing.findMany({ where: and(inArray(briefing.workspaceId, wsIds), eq(briefing.status, "draft")), orderBy: [desc(briefing.updatedAt)], limit: 20 }) : [];
   const inReview = attention.filter((t) => t.status === "in_review");
   const blocked = attention.filter((t) => t.status === "blocked");
   const mine = attention.filter((t) => t.status !== "in_review" && t.status !== "blocked");
@@ -97,6 +98,25 @@ export default async function InboxPage() {
         <div className="space-y-6">
           {me.role === "owner" ? (
             <>
+              {drafts.length ? (
+                <section>
+                  <h2 className="text-sm font-semibold mb-2 flex items-center gap-2">Briefing drafts to review <span className="text-xs font-normal text-muted-foreground">{drafts.length}</span></h2>
+                  <ul className="rounded-lg border divide-y">
+                    {drafts.map((b) => {
+                      const ws = wsById.get(b.workspaceId)!;
+                      return (
+                        <li key={b.id} className="px-3 py-2 hover:bg-accent/40">
+                          <Link href={`/w/${ws.slug}/briefings/${b.id}`} className="flex items-center gap-2">
+                            <span className="truncate font-medium flex-1">{b.title}</span>
+                            <span className="text-xs text-muted-foreground">{ws.name}</span>
+                            <TimeAgo date={b.updatedAt} className="text-xs text-muted-foreground w-14 text-right" />
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ) : null}
               {section("Waiting for review", inReview, "Only you can approve these as Done.")}
               {section("Blocked", blocked)}
             </>

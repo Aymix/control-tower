@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { Lightbulb } from "lucide-react";
 import Link from "next/link";
 import { EmptyState } from "@/components/common/empty-state";
@@ -28,7 +28,7 @@ export default async function ProposalsPage({ params }: { params: Promise<{ slug
     with: { proposals: { orderBy: [asc(proposal.position)], with: { resultingTask: { columns: { number: true } } } }, sourceTask: { columns: { id: true, number: true, title: true, parentId: true } } },
     orderBy: [desc(proposalBatch.createdAt)],
   });
-  const tasks = await db.query.task.findMany({ where: eq(task.workspaceId, ws.id), columns: { id: true, number: true, title: true }, orderBy: [desc(task.number)], limit: 200 });
+  const tasks = await db.query.task.findMany({ where: and(eq(task.workspaceId, ws.id), ne(task.number, 0)), columns: { id: true, number: true, title: true }, orderBy: [desc(task.number)], limit: 200 });
   const isOwner = me.role === "owner";
 
   return (

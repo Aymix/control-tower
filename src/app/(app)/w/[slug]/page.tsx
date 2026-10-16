@@ -15,7 +15,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ slug:
   const me = await requireUser();
   const ws = await requireWorkspace(me, slug);
   const [tasks, openPrs, pinned, pendingProposals, recent] = await Promise.all([
-    db.query.task.findMany({ where: eq(task.workspaceId, ws.id), columns: { id: true, status: true, number: true, title: true, updatedAt: true, blockedReason: true } }),
+    db.query.task.findMany({ where: and(eq(task.workspaceId, ws.id), ne(task.number, 0)), columns: { id: true, status: true, number: true, title: true, updatedAt: true, blockedReason: true } }),
     db.query.pullRequest.findMany({ where: and(eq(pullRequest.workspaceId, ws.id), eq(pullRequest.state, "open")), with: { repo: true, task: { columns: { number: true } } }, orderBy: [desc(pullRequest.ghUpdatedAt)], limit: 8 }),
     db.query.kbDocument.findMany({ where: and(eq(kbDocument.workspaceId, ws.id), eq(kbDocument.pinned, true)), orderBy: [desc(kbDocument.updatedAt)] }),
     db.query.proposal.findMany({ where: and(eq(proposal.workspaceId, ws.id), eq(proposal.status, "pending")), columns: { id: true } }),

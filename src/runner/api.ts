@@ -5,7 +5,7 @@ export class RevokedError extends Error {}
 export type Bundle = {
   session: {
     id: string;
-    kind: "planning" | "implementation";
+    kind: "planning" | "implementation" | "briefing";
     model: string;
     maxBudgetUsd: number | null;
     sdkSessionId: string | null;

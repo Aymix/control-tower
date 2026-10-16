@@ -120,6 +120,18 @@ message.
 **Usage.** Each result carries the SDK's cumulative usage; the server stores deltas in a
 ledger per workspace and session. Workspace budgets block new sessions when exceeded.
 
+## Briefings (phase 3)
+
+Client-facing text the owner sends by hand: status updates, pre-task questions, blockers
+and release notes. A briefing creates a drafting session of kind `briefing` on the owner's
+runner (same lifecycle as other sessions, no repo, no file or shell tools, a single
+`submit_briefing` MCP tool). The prompt (`src/lib/briefings/pack.ts`, unit-tested) carries
+the kind's guide, the owner's style guide, the board snapshot, PRs from the last two weeks,
+recent transitions, pinned KB docs, the bound task's discussion, the last two sent briefings
+of the same kind (to avoid repetition) and up to three earlier draft → sent pairs so the
+model learns how the owner edits. The owner edits in place, marks it sent (recording the
+pair in `briefing_edit`), regenerates with feedback, or discards. Nothing is sent by the app.
+
 ## Phases
 
 1. **Core PM + GitHub** (this repo state): auth, workspaces, rules, KB, board,
@@ -128,7 +140,7 @@ ledger per workspace and session. Workspace budgets block new sessions when exce
    (read-only) and implementation (branch / commit / push / PR) sessions, live
    transcript over SSE, steering, interrupt, resume, context pack, MCP tools
    (`open_pull_request`, `report_blocker`, `submit_plan`), PreToolUse guards, usage ledger.
-3. **Briefings**: status updates, pre-task questions, blockers and release notes
+3. **Briefings** (built): status updates, pre-task questions, blockers and release notes
    drafted in the owner's voice; owner edits and sends; learns from edits.
 4. **External sources**: URL / Notion / Confluence / Google snapshots into the KB,
    CLAUDE.md sync with client repos.

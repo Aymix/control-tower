@@ -8,6 +8,7 @@ import { describeGithubError, fetchPull, GithubNotConfigured, octokitFor } from 
 import { upsertPull } from "@/server/prs/sync";
 import { createProposalBatch } from "@/server/proposals";
 import { addAgentComment, addSystemComment } from "@/server/tasks";
+import { submitBriefingDraft } from "@/server/briefings/service";
 
 /** Tool schemas are shared with the runner (which exposes them to Claude as MCP tools). */
 export const TOOL_SCHEMAS = {
@@ -36,6 +37,11 @@ export const TOOL_SCHEMAS = {
       )
       .max(50)
       .default([]),
+  }),
+  submit_briefing: z.object({
+    title: z.string().min(1).max(200),
+    body: z.string().min(1).max(40_000).describe("The client-facing text in markdown"),
+    notes: z.string().max(4000).optional().describe("Assumptions or open points for the owner, never sent to the client"),
   }),
 } as const;
 
@@ -123,6 +129,12 @@ export async function runSessionTool(sessionId: string, runner: RunnerToken, nam
         }
         await addAgentComment(t.id, `**Plan submitted.** ${args.summary}\n\nSaved to the knowledge base as _${title}_${batchId ? ` with ${args.proposals.length} proposal(s) to review.` : "."}`);
         return { ok: true, result: `Plan saved as "${title}"${batchId ? ` and ${args.proposals.length} proposals were created for the owner to review` : ""}. You can stop here.` };
+      }
+      case "submit_briefing": {
+        if (s.kind !== "briefing") return { ok: false, error: "submit_briefing is only available in briefing sessions." };
+        const args = TOOL_SCHEMAS.submit_briefing.parse(rawArgs);
+        const msg = await submitBriefingDraft(s.id, args);
+        return { ok: true, result: msg };
       }
       default:
         return { ok: false, error: `Unknown tool ${name}.` };

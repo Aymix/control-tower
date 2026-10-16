@@ -567,7 +567,7 @@ export const runnerToken = pgTable(
   (t) => [index("runner_token_user_idx").on(t.userId)],
 );
 
-export const sessionKind = pgEnum("session_kind", ["planning", "implementation"]);
+export const sessionKind = pgEnum("session_kind", ["planning", "implementation", "briefing"]);
 export const sessionStatus = pgEnum("session_status", [
   "queued",
   "claimed",
@@ -717,3 +717,69 @@ export type SessionMessage = typeof sessionMessage.$inferSelect;
 export type SessionStatus = (typeof sessionStatus.enumValues)[number];
 export type SessionKind = (typeof sessionKind.enumValues)[number];
 export const SESSION_STATUSES = sessionStatus.enumValues;
+
+
+// ---------------------------------------------------------------------------
+// Phase 3: briefings (client communication drafted in the owner's voice)
+// ---------------------------------------------------------------------------
+
+export const briefingKind = pgEnum("briefing_kind", ["status_update", "pre_task_questions", "blocker", "release_notes"]);
+export const briefingStatus = pgEnum("briefing_status", ["queued", "drafting", "draft", "sent", "discarded", "failed"]);
+
+export const briefing = pgTable(
+  "briefing",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+    sessionId: text("session_id").references(() => agentSession.id, { onDelete: "set null" }),
+    kind: briefingKind("kind").notNull(),
+    status: briefingStatus("status").notNull().default("queued"),
+    title: text("title").notNull().default(""),
+    instructions: text("instructions").notNull().default(""),
+    draft: text("draft"),
+    finalText: text("final_text"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentVia: text("sent_via"),
+    error: text("error"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("briefing_ws_idx").on(t.workspaceId, t.createdAt), index("briefing_status_idx").on(t.workspaceId, t.status)],
+);
+
+/** Draft → final pairs, kept so future drafts learn how the owner edits. */
+export const briefingEdit = pgTable(
+  "briefing_edit",
+  {
+    id: text("id").primaryKey(),
+    briefingId: text("briefing_id")
+      .notNull()
+      .references(() => briefing.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    kind: briefingKind("kind").notNull(),
+    draft: text("draft").notNull(),
+    finalText: text("final_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("briefing_edit_ws_kind_idx").on(t.workspaceId, t.kind, t.createdAt)],
+);
+
+export const briefingRelations = relations(briefing, ({ one }) => ({
+  workspace: one(workspace, { fields: [briefing.workspaceId], references: [workspace.id] }),
+  task: one(task, { fields: [briefing.taskId], references: [task.id] }),
+  session: one(agentSession, { fields: [briefing.sessionId], references: [agentSession.id] }),
+  creator: one(user, { fields: [briefing.createdBy], references: [user.id] }),
+}));
+
+export type Briefing = typeof briefing.$inferSelect;
+export type BriefingKind = (typeof briefingKind.enumValues)[number];
+export type BriefingStatus = (typeof briefingStatus.enumValues)[number];
+export const BRIEFING_KINDS = briefingKind.enumValues;

@@ -8,6 +8,7 @@ import { ensureWorktree, hasUncommittedChanges, hasUnpushedCommits, removeWorktr
 type Usage = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; costUsd: number; numTurns: number };
 
 const PLAN_READONLY_TOOLS = ["Read", "Glob", "Grep", "Bash", "WebFetch", "WebSearch", "TodoWrite", "Task", "mcp__tower__submit_plan", "mcp__tower__report_blocker"];
+const BRIEFING_TOOLS = ["mcp__tower__submit_briefing"];
 
 /** One Claude session running on this runner. */
 export class RunnerSession {
@@ -81,8 +82,10 @@ export class RunnerSession {
     }
     if (c.end && !this.endRequested) {
       this.endRequested = true;
-      this.log("end requested");
-      void this.endGracefully();
+      this.log("end requested; finishing the current turn");
+      this.closed = true; // no more input; the loop exits after the current result
+      this.clearIdle();
+      if (!this.turnOpen) this.wake?.();
     }
     if (c.interrupt && this.q && this.turnOpen) {
       this.log("interrupt requested");
@@ -125,15 +128,10 @@ export class RunnerSession {
     this.wake?.();
     await this.status({ attached: false });
   }
-  private async endGracefully() {
-    this.closed = true;
-    this.wake?.();
-    if (this.q && this.turnOpen) await this.q.interrupt().catch(() => {});
-  }
 
   // ---- guards --------------------------------------------------------------
   private guardCtx(): BashGuardContext {
-    return { kind: this.bundle.session.kind, worktree: this.wt ?? "/nonexistent", defaultBranch: this.bundle.repo?.defaultBranch ?? "main", sessionBranch: this.branch };
+    return { kind: this.bundle.session.kind === "implementation" ? "implementation" : "planning", worktree: this.wt ?? "/nonexistent", defaultBranch: this.bundle.repo?.defaultBranch ?? "main", sessionBranch: this.branch };
   }
   private preToolUse: HookCallback = async (input) => {
     const pre = input as PreToolUseHookInput;
@@ -158,14 +156,30 @@ export class RunnerSession {
       return { content: [{ type: "text" as const, text: r.ok ? (r.result ?? "ok") : `Error: ${r.error}` }], isError: !r.ok };
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tools: SdkMcpToolDefinition<any>[] = [
+    const tools: SdkMcpToolDefinition<any>[] = [];
+    if (this.bundle.session.kind === "briefing") {
+      tools.push(
+        tool(
+          "submit_briefing",
+          "Hand back the finished client-facing draft. Call exactly once.",
+          {
+            title: z.string().describe("Short subject line"),
+            body: z.string().describe("The client-facing text, markdown, in the owner's voice"),
+            notes: z.string().optional().describe("Assumptions or open points for the owner; never sent to the client"),
+          },
+          forward("submit_briefing"),
+        ),
+      );
+      return createSdkMcpServer({ name: "tower", version: "1.0.0", tools });
+    }
+    tools.push(
       tool(
         "report_blocker",
         "Mark the task as Blocked with a precise reason and notify the owner. Use when you cannot proceed (missing access, unclear requirements, failing environment).",
         { reason: z.string().describe("One or two sentences: what is blocking"), details: z.string().optional().describe("What you tried; what you need") },
         forward("report_blocker"),
       ),
-    ];
+    );
     if (this.bundle.session.kind === "planning") {
       tools.push(
         tool(
@@ -212,7 +226,7 @@ export class RunnerSession {
 
       if (this.bundle.repo) {
         const r = this.bundle.repo;
-        const wt = await ensureWorktree(this.cfg, { sessionId: s.id, owner: r.owner, name: r.name, defaultBranch: r.defaultBranch, branch: s.branch, kind: s.kind }, (m) => {
+        const wt = await ensureWorktree(this.cfg, { sessionId: s.id, owner: r.owner, name: r.name, defaultBranch: r.defaultBranch, branch: s.branch, kind: s.kind === "implementation" ? "implementation" : "planning" }, (m) => {
           this.log(m);
           this.emit("git", { message: m });
         });
@@ -231,8 +245,8 @@ export class RunnerSession {
         await new Promise((r) => setTimeout(r, 1500));
       }
 
-      const allowed = s.kind === "planning" ? PLAN_READONLY_TOOLS : undefined;
-      const disallowed = s.kind === "planning" ? ["Write", "Edit", "MultiEdit", "NotebookEdit"] : [];
+      const allowed = s.kind === "planning" ? PLAN_READONLY_TOOLS : s.kind === "briefing" ? BRIEFING_TOOLS : undefined;
+      const disallowed = s.kind === "planning" ? ["Write", "Edit", "MultiEdit", "NotebookEdit"] : s.kind === "briefing" ? ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch", "Task", "ToolSearch"] : [];
 
       this.q = query({
         prompt: this.input(),
@@ -340,6 +354,7 @@ export class RunnerSession {
           this.closed = true;
           this.wake?.();
         } else if (this.endRequested) {
+          await this.status({ usage: this.usage, hasUnpushedCommits: unpushed, sdkSessionId: this.sdkSessionId });
           this.closed = true;
           this.wake?.();
         } else {
