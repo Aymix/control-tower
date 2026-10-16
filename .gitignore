@@ -46,3 +46,6 @@ next-env.d.ts
 
 # screenshots from pnpm shots
 shots/
+
+# keep the template
+!.env.example
