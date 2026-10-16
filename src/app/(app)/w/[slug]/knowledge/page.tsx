@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { Archive, BookOpen, Pin, Plus } from "lucide-react";
+import { Archive, BookOpen, Globe, Pin, Plus } from "lucide-react";
 import Link from "next/link";
 import { EmptyState } from "@/components/common/empty-state";
 import { TimeAgo } from "@/components/common/time";
@@ -36,6 +36,9 @@ export default async function KnowledgePage({ params, searchParams }: { params: 
                 </Link>
               </Button>
             ) : null}
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/w/${slug}/knowledge/sources`}><Globe className="size-3.5" /> Sources</Link>
+            </Button>
             <Button asChild size="sm">
               <Link href={`/w/${slug}/knowledge/new`}><Plus className="size-4" /> New document</Link>
             </Button>

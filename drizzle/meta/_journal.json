@@ -22,6 +22,13 @@
       "when": 1792058635053,
       "tag": "0002_phase3_briefings",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792147992132,
+      "tag": "0003_phase4_sources",
+      "breakpoints": true
     }
   ]
 }

@@ -191,6 +191,10 @@ export const repo = pgTable(
     pushAccess: boolean("push_access"),
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
     checkError: text("check_error"),
+    claudeMdSyncedAt: timestamp("claude_md_synced_at", { withTimezone: true }),
+    claudeMdHash: text("claude_md_hash"),
+    claudeMdPrUrl: text("claude_md_pr_url"),
+    claudeMdError: text("claude_md_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("repo_ws_owner_name_idx").on(t.workspaceId, t.owner, t.name)],
@@ -783,3 +787,44 @@ export type Briefing = typeof briefing.$inferSelect;
 export type BriefingKind = (typeof briefingKind.enumValues)[number];
 export type BriefingStatus = (typeof briefingStatus.enumValues)[number];
 export const BRIEFING_KINDS = briefingKind.enumValues;
+
+// ---------------------------------------------------------------------------
+// Phase 4: external sources snapshotted into the KB, CLAUDE.md sync
+// ---------------------------------------------------------------------------
+
+export const sourceKind = pgEnum("source_kind", ["url", "notion", "confluence", "google_doc"]);
+
+export const kbSource = pgTable(
+  "kb_source",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    documentId: text("document_id").references(() => kbDocument.id, { onDelete: "set null" }),
+    kind: sourceKind("kind").notNull(),
+    label: text("label").notNull(),
+    ref: text("ref").notNull(), // URL, Notion page URL/id, Confluence page URL/id, Google Doc URL/id
+    config: jsonb("config").$type<Record<string, string>>().notNull().default({}), // e.g. confluence base + email
+    secretEnc: text("secret_enc"), // integration/API token, AES-256-GCM under MASTER_KEY
+    secretLast4: text("secret_last4"),
+    pinned: boolean("pinned").notNull().default(false),
+    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(0), // 0 = manual only
+    contentHash: text("content_hash"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("kb_source_ws_idx").on(t.workspaceId)],
+);
+
+export const kbSourceRelations = relations(kbSource, ({ one }) => ({
+  workspace: one(workspace, { fields: [kbSource.workspaceId], references: [workspace.id] }),
+  document: one(kbDocument, { fields: [kbSource.documentId], references: [kbDocument.id] }),
+}));
+
+export type KbSource = typeof kbSource.$inferSelect;
+export type SourceKind = (typeof sourceKind.enumValues)[number];
+export const SOURCE_KINDS = sourceKind.enumValues;

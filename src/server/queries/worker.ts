@@ -12,13 +12,13 @@ export async function workerHealth(): Promise<{ available: boolean; jobs: JobHea
              max(case when state = 'failed' then completed_on end) as last_failed,
              (array_agg(output::text order by completed_on desc) filter (where state = 'failed'))[1] as last_error
       from pgboss.job
-      where name in ('prs.poll', 'prs.discover', 'sessions.reap')
+      where name in ('prs.poll', 'prs.discover', 'sessions.reap', 'sources.sync')
       group by name
     `);
     const sched = await db.execute<{ name: string }>(sql`select name from pgboss.schedule`);
     const scheduled = new Set((sched.rows ?? []).map((r) => r.name));
     const byName = new Map((rows.rows ?? []).map((r) => [r.name, r]));
-    const jobs: JobHealth[] = ["prs.poll", "prs.discover", "sessions.reap"].map((name) => {
+    const jobs: JobHealth[] = ["prs.poll", "prs.discover", "sessions.reap", "sources.sync"].map((name) => {
       const r = byName.get(name);
       return {
         name,

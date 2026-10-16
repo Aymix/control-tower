@@ -4,6 +4,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/common/empty-state";
 import { TimeAgo } from "@/components/common/time";
 import { ActionButton } from "@/components/forms/action-button";
+import { SyncClaudeMdButton } from "@/components/sources/claude-md-button";
 import { ActionForm } from "@/components/forms/action-form";
 import { PageHeader } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ export default async function ReposPage({ params }: { params: Promise<{ slug: st
     <div className="max-w-4xl space-y-6">
       <PageHeader
         title="Repositories"
-        description="GitHub repos Claude may work in. Open PRs on branches named t<number>-… are discovered automatically."
+        description="GitHub repos Claude may work in. Open PRs on branches named t<number>-… are discovered automatically. “Sync CLAUDE.md” opens a PR that writes the rules and pinned knowledge into the repo between managed markers."
       />
       {!ws.githubPatEnc ? (
         <div className="rounded-lg border bg-amber-500/10 px-3 py-2 text-sm">
@@ -59,7 +60,12 @@ export default async function ReposPage({ params }: { params: Promise<{ slug: st
                     {r.lastCheckedAt ? <span>· checked <TimeAgo date={r.lastCheckedAt} /></span> : null}
                   </div>
                   {r.checkError ? <div className="text-xs text-red-600 dark:text-red-400 mt-0.5">{r.checkError}</div> : null}
+                  <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                    <span>CLAUDE.md:</span>
+                    {r.claudeMdError ? <span className="text-red-600 dark:text-red-400">{r.claudeMdError}</span> : r.claudeMdSyncedAt ? <span>synced <TimeAgo date={r.claudeMdSyncedAt} />{r.claudeMdPrUrl ? <> · <a href={r.claudeMdPrUrl} target="_blank" rel="noreferrer" className="underline">PR</a></> : null}</span> : <span>never synced</span>}
+                  </div>
                 </div>
+                {isOwner ? <SyncClaudeMdButton repoId={r.id} disabled={!ws.githubPatEnc || r.pushAccess === false} /> : null}
                 <ActionButton size="icon-xs" variant="ghost" action={recheckRepo.bind(null, r.id)} title="Re-check access and discover PRs" successMessage="Repo checked">
                   <RefreshCw className="size-3.5" />
                 </ActionButton>

@@ -46,6 +46,7 @@ Useful scripts:
 | `pnpm db:generate`  | create a migration from `src/db/schema.ts`                 |
 | `pnpm db:migrate`   | apply migrations                                           |
 | `pnpm runner`       | start a runner on this machine (needs `TOWER_URL`, `TOWER_RUNNER_TOKEN`) |
+| `pnpm worker`       | PR poller, branch discovery, session reaper, source re-sync |
 | `pnpm shots`        | seed a demo workspace and screenshot every page to `shots/` (needs `pnpm dev` + `DEV_LOGIN=1`) |
 
 ## Production (Docker Compose + Caddy)

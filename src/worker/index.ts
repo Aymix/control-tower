@@ -6,10 +6,12 @@ import { pullRequest, repo, workspace } from "@/db/schema";
 import { env } from "@/lib/env";
 import { discoverPullsForRepo, syncPullById } from "@/server/prs/sync";
 import { reapSessions } from "@/server/sessions/service";
+import { syncDueSources } from "@/server/sources/sync";
 
 export const QUEUE_POLL = "prs.poll";
 export const QUEUE_DISCOVER = "prs.discover";
 export const QUEUE_REAP = "sessions.reap";
+export const QUEUE_SOURCES = "sources.sync";
 
 /** Closed or merged PRs stop being polled after this long (re-opens are rare). */
 const COLD_RETIRE_DAYS = 7;
@@ -76,10 +78,11 @@ async function main() {
   const boss = new PgBoss({ connectionString: env().DATABASE_URL, schema: "pgboss" });
   boss.on("error", (err: unknown) => console.error("[worker] pg-boss error", err));
   await boss.start();
-  for (const q of [QUEUE_POLL, QUEUE_DISCOVER, QUEUE_REAP]) await boss.createQueue(q);
+  for (const q of [QUEUE_POLL, QUEUE_DISCOVER, QUEUE_REAP, QUEUE_SOURCES]) await boss.createQueue(q);
   await boss.schedule(QUEUE_POLL, "* * * * *");
   await boss.schedule(QUEUE_DISCOVER, "*/2 * * * *");
   await boss.schedule(QUEUE_REAP, "* * * * *");
+  await boss.schedule(QUEUE_SOURCES, "*/5 * * * *");
 
   await boss.work(QUEUE_POLL, { batchSize: 1 }, async () => {
     const r = await pollDuePulls();
@@ -95,12 +98,19 @@ async function main() {
     if (r.silent || r.tooLong) log(`reaper: failed ${r.silent} silent session(s), interrupted ${r.tooLong} over the max duration`);
   });
 
+  await boss.work(QUEUE_SOURCES, { batchSize: 1 }, async () => {
+    const r = await syncDueSources();
+    if (r.due) log(`sources: ${r.due} due, ${r.changed} changed`);
+    for (const e of r.errors) console.warn(`[worker] sources: ${e}`);
+  });
+
   // Run each job once at startup so a fresh deploy does not wait a full minute.
   await boss.send(QUEUE_POLL, {});
   await boss.send(QUEUE_DISCOVER, {});
   await boss.send(QUEUE_REAP, {});
+  await boss.send(QUEUE_SOURCES, {});
 
-  log(`started: PR poll every minute (hot ${env().PR_POLL_HOT_SECONDS}s / warm ${env().PR_POLL_WARM_SECONDS}s / cold ${env().PR_POLL_COLD_SECONDS}s), discovery every 2 min, session reaper every minute (silent ${env().SESSION_SILENT_MINUTES} min, max ${env().SESSION_MAX_HOURS} h)`);
+  log(`started: PR poll every minute (hot ${env().PR_POLL_HOT_SECONDS}s / warm ${env().PR_POLL_WARM_SECONDS}s / cold ${env().PR_POLL_COLD_SECONDS}s), discovery every 2 min, session reaper every minute (silent ${env().SESSION_SILENT_MINUTES} min, max ${env().SESSION_MAX_HOURS} h), source sync every 5 min`);
 
   const shutdown = async () => {
     log("stopping");

@@ -132,6 +132,22 @@ of the same kind (to avoid repetition) and up to three earlier draft → sent pa
 model learns how the owner edits. The owner edits in place, marks it sent (recording the
 pair in `briefing_edit`), regenerates with feedback, or discards. Nothing is sent by the app.
 
+## External sources and CLAUDE.md (phase 4)
+
+**Sources.** Each workspace can register web pages, Notion pages (integration token),
+Confluence pages (Atlassian email + API token) and link-shared Google Docs. The server
+fetches and converts them to markdown (`src/lib/sources/*`, unit-tested) and stores the
+result as a `source_snapshot` KB document; a re-sync adds a version only when the content
+hash changed. Secrets are encrypted at rest. Public URLs are checked against private
+address ranges. The worker runs `sources.sync` every 5 minutes for sources with an interval.
+Google Docs are link-only by design (no OAuth); a private doc fails with a clear hint.
+
+**CLAUDE.md sync.** `src/lib/claude-md/render.ts` renders a managed block between
+`<!-- control-tower:start/end -->` from global rules, guardrails, workspace rules and pinned
+documents, and merges it into the repo's existing CLAUDE.md without touching content outside
+the markers. The sync writes to branch `control-tower/claude-md` and opens or updates one PR;
+it never pushes to the default branch.
+
 ## Phases
 
 1. **Core PM + GitHub** (this repo state): auth, workspaces, rules, KB, board,
@@ -142,8 +158,8 @@ pair in `briefing_edit`), regenerates with feedback, or discards. Nothing is sen
    (`open_pull_request`, `report_blocker`, `submit_plan`), PreToolUse guards, usage ledger.
 3. **Briefings** (built): status updates, pre-task questions, blockers and release notes
    drafted in the owner's voice; owner edits and sends; learns from edits.
-4. **External sources**: URL / Notion / Confluence / Google snapshots into the KB,
-   CLAUDE.md sync with client repos.
+4. **External sources** (built): URL / Notion / Confluence / Google snapshots into the KB,
+   CLAUDE.md sync with client repos via PR.
 
 ## Stack
 
